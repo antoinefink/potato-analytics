@@ -16,6 +16,8 @@ import (
 	_ "embed"
 
 	_ "github.com/lib/pq"
+	"github.com/tdewolff/minify/v2"
+	"github.com/tdewolff/minify/v2/js"
 	"github.com/ua-parser/uap-go/uaparser"
 )
 
@@ -213,7 +215,12 @@ func main() {
 			url = "http://localhost:8080/track"
 		}
 
-		script := fmt.Sprintf(trackingJS, url)
+		script, err := jsMinifier.String("text/javascript", fmt.Sprintf(trackingJS, url))
+		if err != nil {
+			logger.Error("Failed to minify tracking.js", slog.String("error", err.Error()))
+			http.Error(w, "Failed to minify tracking.js", http.StatusInternalServerError)
+			return
+		}
 
 		w.Write([]byte(script))
 	})
@@ -278,5 +285,11 @@ func loadEnv(filename string) error {
 	}
 
 	return scanner.Err()
+}
 
+var jsMinifier *minify.M
+
+func init() {
+	jsMinifier = minify.New()
+	jsMinifier.AddFunc("text/javascript", js.Minify)
 }
