@@ -81,6 +81,12 @@ func main() {
 		log.Fatalf("Failed to ping the database: %v", err)
 	}
 
+	// Create the HLL extension if it doesn't exist
+	_, err = db.Exec(`CREATE EXTENSION IF NOT EXISTS hll`)
+	if err != nil {
+		log.Fatalf("Failed to create hll extension: %v", err)
+	}
+
 	// Ensure the pageviews table exists
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS pageviews (
 		domain TEXT NOT NULL,
