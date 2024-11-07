@@ -22,9 +22,12 @@ import (
 	"github.com/ua-parser/uap-go/uaparser"
 )
 
-var hostDomain = os.Getenv("DOMAIN")
-var apiKey = os.Getenv("API_KEY")
-var environment = os.Getenv("ENVIRONMENT")
+var (
+	hostDomain  = os.Getenv("DOMAIN")
+	apiKey      = os.Getenv("API_KEY")
+	environment = os.Getenv("ENVIRONMENT")
+	logLevel    = os.Getenv("LOG_LEVEL")
+)
 
 //go:embed tracking.js
 var trackingJS string
@@ -47,6 +50,20 @@ func main() {
 		level = slog.LevelInfo
 	} else {
 		level = slog.LevelDebug
+	}
+
+	// If LOG_LEVEL is set, use it to override the default level
+	if logLevel != "" {
+		switch logLevel {
+		case "debug":
+			level = slog.LevelDebug
+		case "info":
+			level = slog.LevelInfo
+		case "warn":
+			level = slog.LevelWarn
+		case "error":
+			level = slog.LevelError
+		}
 	}
 
 	logger := slog.New(slog.NewTextHandler(log.Writer(), &slog.HandlerOptions{Level: level}))
@@ -96,7 +113,6 @@ func main() {
 		if client.Device.Family == "Spider" || client.UserAgent.Family == "Bot" {
 			logger.Debug("Ignored non-human pageview", slog.String("url", visitedURL), slog.String("user_agent", ua), slog.String("remote_addr", r.RemoteAddr))
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintln(w, "Ignored non-human pageview")
 			return
 		}
 
@@ -133,7 +149,6 @@ func main() {
 			w.Header().Set("Cache-Control", "public, max-age=3600, s-maxage=3600, must-revalidate")
 		}
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "Pageview tracked")
 	})
 
 	http.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
