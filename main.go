@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -257,6 +258,11 @@ func getConnStr() string {
 func loadEnv(filename string) error {
 	file, err := os.Open(filename)
 	if err != nil {
+		// If the file doesn't exist, return nil
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+
 		return err
 	}
 	defer file.Close()
