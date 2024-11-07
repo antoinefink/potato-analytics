@@ -32,6 +32,9 @@ var trackingJS string
 //go:embed regexp.yaml
 var userAgentRegexp string
 
+//go:embed index.html
+var indexHTML string
+
 func main() {
 	err := loadEnv(".env")
 	if err != nil {
@@ -204,6 +207,12 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(stats)
+	})
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, indexHTML)
 	})
 
 	http.HandleFunc("/analytics.js", func(w http.ResponseWriter, r *http.Request) {
