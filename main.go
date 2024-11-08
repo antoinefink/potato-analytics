@@ -181,6 +181,11 @@ func main() {
 			}
 		}
 
+		// If the referrer is the same as the domain, set it to "Direct / None"
+		if referrer == parsedURL.Host {
+			referrer = "Direct / None"
+		}
+
 		err = trackSourceView(db, parsedURL.Host, referrer, day, visitorIP)
 		if err != nil {
 			logger.Error("Failed to track source view", slog.String("error", err.Error()))
