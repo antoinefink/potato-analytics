@@ -230,12 +230,6 @@ func main() {
 		json.NewEncoder(w).Encode(stats)
 	})
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html")
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, indexHTML)
-	})
-
 	http.HandleFunc("/analytics.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/javascript")
 		w.Header().Set("Cache-Control", "public, max-age=86400") // Cache for 24 hours
@@ -254,6 +248,17 @@ func main() {
 		}
 
 		w.Write([]byte(script))
+	})
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, indexHTML)
 	})
 
 	logger.Info("Starting server", slog.String("address", ":8080"))
