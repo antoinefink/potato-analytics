@@ -518,6 +518,11 @@ func init() {
 
 func requireAPIKey(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if apiKey == "" && environment == "production" {
+			http.Error(w, "API_KEY is mandatory in production", http.StatusUnauthorized)
+			return
+		}
+
 		if apiKey != "" && r.URL.Query().Get("api_key") != apiKey {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
