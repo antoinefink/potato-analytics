@@ -66,7 +66,43 @@
     });
   }
 
+  function cleanOldEntries() {
+    return openDB().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var transaction = db.transaction('trackedUrls', 'readwrite');
+        var store = transaction.objectStore('trackedUrls');
+        var request = store.openCursor();
+        var fortyEightHoursAgo = Date.now() - (48 * 60 * 60 * 1000);
+
+        request.onsuccess = function (event) {
+          var cursor = event.target.result;
+          if (cursor) {
+            if (cursor.value.timestamp < fortyEightHoursAgo) {
+              cursor.delete();
+            }
+            cursor.continue();
+          }
+        };
+
+        transaction.oncomplete = function () {
+          resolve();
+        };
+
+        transaction.onerror = function (event) {
+          reject(event.target.error);
+        };
+      });
+    });
+  }
+
   var trackEvent = function (eventType) {
+    // Run cleanup roughly every 100 pageviews (random check)
+    if (Math.random() < 0.01) {
+      cleanOldEntries().catch(function (error) {
+        console.error('Failed to clean old entries:', error);
+      });
+    }
+
     shouldTrackUrl(window.location.pathname).then(function (shouldTrack) {
       if (shouldTrack) {
         try {
