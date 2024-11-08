@@ -82,17 +82,36 @@ func main() {
 		log.Fatalf("Failed to create hll extension: %v", err)
 	}
 
-	// Ensure the pageviews table exists
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS pageviews (
-		domain TEXT NOT NULL,
-		path TEXT NOT NULL,
-		day DATE NOT NULL,
-		visitor_hll hll NOT NULL,
-		UNIQUE (domain, day, path)
-	);
-	CREATE INDEX IF NOT EXISTS pageviews_day_idx ON pageviews (day DESC);`)
+	// Merge all table creation statements
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS pages (
+			domain TEXT NOT NULL,
+			path TEXT NOT NULL,
+			day DATE NOT NULL,
+			visitor_hll hll NOT NULL,
+			UNIQUE (domain, day, path)
+		);
+		CREATE INDEX IF NOT EXISTS pages_day_idx ON pages (day DESC);
+
+		CREATE TABLE IF NOT EXISTS countries (
+			domain TEXT NOT NULL,
+			country TEXT NOT NULL,
+			day DATE NOT NULL,
+			visitor_hll hll NOT NULL,
+			UNIQUE (domain, day, country)
+		);
+		CREATE INDEX IF NOT EXISTS countries_day_idx ON countries (day DESC);
+
+		CREATE TABLE IF NOT EXISTS sources (
+			domain TEXT NOT NULL,
+			referrer TEXT NOT NULL,
+			day DATE NOT NULL,
+			visitor_hll hll NOT NULL,
+			UNIQUE (domain, day, referrer)
+		);
+		CREATE INDEX IF NOT EXISTS sources_day_idx ON sources (day DESC);`)
 	if err != nil {
-		log.Fatalf("Failed to create pageviews table: %v", err)
+		log.Fatalf("Failed to create tables: %v", err)
 	}
 
 	// Load the User-Agent parser
@@ -144,6 +163,29 @@ func main() {
 			return
 		}
 
+		country := r.Header.Get("CF-IPCountry")
+		if country != "" {
+			err = trackCountryView(db, parsedURL.Host, country, day, visitorIP)
+			if err != nil {
+				logger.Error("Failed to track country view", slog.String("error", err.Error()))
+			}
+		}
+
+		referrer := r.Header.Get("Referer")
+		if referrer == "" {
+			referrer = "Direct / None"
+		} else {
+			// Parse referrer to get domain only
+			if refURL, err := url.Parse(referrer); err == nil {
+				referrer = refURL.Host
+			}
+		}
+
+		err = trackSourceView(db, parsedURL.Host, referrer, day, visitorIP)
+		if err != nil {
+			logger.Error("Failed to track source view", slog.String("error", err.Error()))
+		}
+
 		logger.Debug("Pageview tracked", slog.String("url", visitedURL), slog.String("visitor_ip", visitorIP), slog.String("user_agent", ua))
 
 		if r.URL.Query().Get("url") != "" {
@@ -152,7 +194,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	http.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/stats/pages", func(w http.ResponseWriter, r *http.Request) {
 		if apiKey != "" && r.URL.Query().Get("api_key") != apiKey {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -181,7 +223,7 @@ func main() {
 		if aggregate {
 			query = `
 			SELECT day, #(hll_union_agg(visitor_hll)) as visitors
-			FROM pageviews
+			FROM pages
 			WHERE domain = $1 AND day >= $2 AND day <= $3
 			GROUP BY day
 				ORDER BY day DESC
@@ -189,7 +231,7 @@ func main() {
 		} else {
 			query = `
 			SELECT path, day, hll_cardinality(visitor_hll) as visitors
-			FROM pageviews
+			FROM pages
 			WHERE domain = $1 AND day >= $2 AND day <= $3
 			ORDER BY day DESC, visitors DESC
 			`
@@ -213,6 +255,110 @@ func main() {
 				err = rows.Scan(&stat.Path, &stat.Day, &stat.Visitors)
 			}
 			if err != nil {
+				logger.Error("Failed to scan stats", slog.String("error", err.Error()))
+				http.Error(w, "Failed to fetch stats", http.StatusInternalServerError)
+				return
+			}
+			stats = append(stats, stat)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(stats)
+	})
+
+	http.HandleFunc("/stats/sources", func(w http.ResponseWriter, r *http.Request) {
+		if apiKey != "" && r.URL.Query().Get("api_key") != apiKey {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		domain := r.URL.Query().Get("domain")
+		if domain == "" {
+			http.Error(w, "Missing domain parameter", http.StatusBadRequest)
+			return
+		}
+
+		endTime := time.Now().UTC().Truncate(24 * time.Hour)
+		startTime := endTime.Add(-30 * 24 * time.Hour)
+
+		type SourceStat struct {
+			Referrer string    `json:"referrer"`
+			Day      time.Time `json:"day"`
+			Visitors int       `json:"visitors"`
+		}
+
+		query := `
+		SELECT referrer, day, hll_cardinality(visitor_hll) as visitors
+		FROM sources
+		WHERE domain = $1 AND day >= $2 AND day <= $3
+		ORDER BY day DESC, visitors DESC
+		`
+
+		rows, err := db.Query(query, domain, startTime, endTime)
+		if err != nil {
+			logger.Error("Failed to query stats", slog.String("error", err.Error()))
+			http.Error(w, "Failed to fetch stats", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		var stats []SourceStat
+		for rows.Next() {
+			var stat SourceStat
+			if err := rows.Scan(&stat.Referrer, &stat.Day, &stat.Visitors); err != nil {
+				logger.Error("Failed to scan stats", slog.String("error", err.Error()))
+				http.Error(w, "Failed to fetch stats", http.StatusInternalServerError)
+				return
+			}
+			stats = append(stats, stat)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(stats)
+	})
+
+	http.HandleFunc("/stats/countries", func(w http.ResponseWriter, r *http.Request) {
+		if apiKey != "" && r.URL.Query().Get("api_key") != apiKey {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		domain := r.URL.Query().Get("domain")
+		if domain == "" {
+			http.Error(w, "Missing domain parameter", http.StatusBadRequest)
+			return
+		}
+
+		endTime := time.Now().UTC().Truncate(24 * time.Hour)
+		startTime := endTime.Add(-30 * 24 * time.Hour)
+
+		type CountryStat struct {
+			Country  string    `json:"country"`
+			Day      time.Time `json:"day"`
+			Visitors int       `json:"visitors"`
+		}
+
+		query := `
+		SELECT country, day, hll_cardinality(visitor_hll) as visitors
+		FROM countries
+		WHERE domain = $1 AND day >= $2 AND day <= $3
+		ORDER BY day DESC, visitors DESC
+		`
+
+		rows, err := db.Query(query, domain, startTime, endTime)
+		if err != nil {
+			logger.Error("Failed to query stats", slog.String("error", err.Error()))
+			http.Error(w, "Failed to fetch stats", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		var stats []CountryStat
+		for rows.Next() {
+			var stat CountryStat
+			if err := rows.Scan(&stat.Country, &stat.Day, &stat.Visitors); err != nil {
 				logger.Error("Failed to scan stats", slog.String("error", err.Error()))
 				http.Error(w, "Failed to fetch stats", http.StatusInternalServerError)
 				return
@@ -270,15 +416,51 @@ func trackPageView(db *sql.DB, domain string, path string, day time.Time, visito
 	hash := fmt.Sprintf("%x", visitor)
 
 	query := `
-	INSERT INTO pageviews (domain, path, day, visitor_hll)
+	INSERT INTO pages (domain, path, day, visitor_hll)
 	VALUES ($1, $2, $3, hll_add(hll_empty(), hll_hash_text($4)))
 	ON CONFLICT (domain, day, path)
-	DO UPDATE SET visitor_hll = hll_add(pageviews.visitor_hll, hll_hash_text($4))
+	DO UPDATE SET visitor_hll = hll_add(pages.visitor_hll, hll_hash_text($4))
 	`
 
 	_, err := db.Exec(query, domain, path, day, hash)
 	if err != nil {
 		return fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	return nil
+}
+
+func trackCountryView(db *sql.DB, domain string, country string, day time.Time, visitor string) error {
+	hash := fmt.Sprintf("%x", visitor)
+
+	query := `
+	INSERT INTO countries (domain, country, day, visitor_hll)
+	VALUES ($1, $2, $3, hll_add(hll_empty(), hll_hash_text($4)))
+	ON CONFLICT (domain, day, country)
+	DO UPDATE SET visitor_hll = hll_add(countries.visitor_hll, hll_hash_text($4))
+	`
+
+	_, err := db.Exec(query, domain, country, day, hash)
+	if err != nil {
+		return fmt.Errorf("failed to track country view: %w", err)
+	}
+
+	return nil
+}
+
+func trackSourceView(db *sql.DB, domain string, referrer string, day time.Time, visitor string) error {
+	hash := fmt.Sprintf("%x", visitor)
+
+	query := `
+	INSERT INTO sources (domain, referrer, day, visitor_hll)
+	VALUES ($1, $2, $3, hll_add(hll_empty(), hll_hash_text($4)))
+	ON CONFLICT (domain, day, referrer)
+	DO UPDATE SET visitor_hll = hll_add(sources.visitor_hll, hll_hash_text($4))
+	`
+
+	_, err := db.Exec(query, domain, referrer, day, hash)
+	if err != nil {
+		return fmt.Errorf("failed to track source view: %w", err)
 	}
 
 	return nil
