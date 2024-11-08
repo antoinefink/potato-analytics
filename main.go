@@ -194,12 +194,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	http.HandleFunc("/stats/pages", func(w http.ResponseWriter, r *http.Request) {
-		if apiKey != "" && r.URL.Query().Get("api_key") != apiKey {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
+	http.HandleFunc("/stats/pages", requireAPIKey(func(w http.ResponseWriter, r *http.Request) {
 		domain := r.URL.Query().Get("domain")
 		if domain == "" {
 			http.Error(w, "Missing domain parameter", http.StatusBadRequest)
@@ -265,14 +260,9 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(stats)
-	})
+	}))
 
-	http.HandleFunc("/stats/sources", func(w http.ResponseWriter, r *http.Request) {
-		if apiKey != "" && r.URL.Query().Get("api_key") != apiKey {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
+	http.HandleFunc("/stats/sources", requireAPIKey(func(w http.ResponseWriter, r *http.Request) {
 		domain := r.URL.Query().Get("domain")
 		if domain == "" {
 			http.Error(w, "Missing domain parameter", http.StatusBadRequest)
@@ -317,14 +307,9 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(stats)
-	})
+	}))
 
-	http.HandleFunc("/stats/countries", func(w http.ResponseWriter, r *http.Request) {
-		if apiKey != "" && r.URL.Query().Get("api_key") != apiKey {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
+	http.HandleFunc("/stats/countries", requireAPIKey(func(w http.ResponseWriter, r *http.Request) {
 		domain := r.URL.Query().Get("domain")
 		if domain == "" {
 			http.Error(w, "Missing domain parameter", http.StatusBadRequest)
@@ -369,7 +354,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(stats)
-	})
+	}))
 
 	http.HandleFunc("/analytics.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/javascript")
@@ -524,4 +509,14 @@ var jsMinifier *minify.M
 func init() {
 	jsMinifier = minify.New()
 	jsMinifier.AddFunc("text/javascript", js.Minify)
+}
+
+func requireAPIKey(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if apiKey != "" && r.URL.Query().Get("api_key") != apiKey {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next(w, r)
+	}
 }
