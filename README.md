@@ -1,6 +1,6 @@
 # 🥔 Potato Analytics
 
-A lightweight and minimalistic analytics solution that tracks page views while respecting user privacy. Potato Analytics only tracks daily unique page views, nothing else. It makes it super light, fast, and saves you from doing any maintenance.
+A lightweight and minimalistic analytics solution that tracks your visitors' countries, sources, and page views while respecting their privacy. Ideal for personal websites or blogs. Potato Analytics only tracks aggregate data and stores nothing about individual visitors. It makes it light, fast, and minimizes maintenance.
 
 Other key features are:
 
@@ -10,6 +10,8 @@ Other key features are:
 - Automatically filters out bots and crawlers
 - Accessible via a simple API
 - Uses a probabilistic data structure called [HyperLogLog](https://en.wikipedia.org/wiki/HyperLogLog) to estimate the number of unique visitors which saves on storage
+
+For more details, see the associated [blog post](https://www.integralreview.com/potato-analytics).
 
 ## Usage
 
@@ -34,10 +36,10 @@ Add the following script to your website's HTML (ideally just before the closing
 ```
 
 ### Obtaining your stats
-To check your stats, use the `/stats` endpoint:
+To check your stats, use the `/stats/pages`, `/stats/countries`, and `/stats/sources` endpoints:
 
 ```bash
-curl https://your-analytics-domain.com/stats?api_key=your-api-key
+curl https://your-analytics-domain.com/stats/pages?api_key=your-api-key
 ```
 
 will return something like:
