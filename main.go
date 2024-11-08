@@ -23,10 +23,10 @@ import (
 )
 
 var (
-	hostDomain  = os.Getenv("DOMAIN")
-	apiKey      = os.Getenv("API_KEY")
-	environment = os.Getenv("ENVIRONMENT")
-	logLevel    = os.Getenv("LOG_LEVEL")
+	hostDomain  string
+	apiKey      string
+	environment string
+	logLevel    string
 )
 
 //go:embed tracking.js
@@ -39,11 +39,6 @@ var userAgentRegexp string
 var indexHTML string
 
 func main() {
-	err := loadEnv(".env")
-	if err != nil {
-		log.Fatalf("Failed to load environment variables: %v", err)
-	}
-
 	// Set up structured logging using slog
 	var level slog.Level
 	if environment == "production" {
@@ -234,10 +229,16 @@ func main() {
 		w.Header().Set("Content-Type", "application/javascript")
 		w.Header().Set("Cache-Control", "public, max-age=86400") // Cache for 24 hours
 
-		url := "https://" + hostDomain + "/track"
-
-		if hostDomain == "localhost" {
+		var url string
+		switch hostDomain {
+		case "":
+			logger.Error("HOST_DOMAIN is not set")
+			http.Error(w, "HOST_DOMAIN is not set", http.StatusInternalServerError)
+			return
+		case "localhost":
 			url = "http://localhost:8080/track"
+		default:
+			url = "https://" + hostDomain + "/track"
 		}
 
 		script, err := jsMinifier.String("text/javascript", fmt.Sprintf(trackingJS, url))
@@ -290,15 +291,16 @@ func getConnStr() string {
 	return "postgres://postgres@localhost:5432/potato?sslmode=disable"
 }
 
-func loadEnv(filename string) error {
-	file, err := os.Open(filename)
+// init loads environment variables from .env file
+func init() {
+	file, err := os.Open(".env")
 	if err != nil {
 		// If the file doesn't exist, return nil
 		if errors.Is(err, os.ErrNotExist) {
-			return nil
+			return
 		}
 
-		return err
+		panic(err)
 	}
 	defer file.Close()
 
@@ -325,7 +327,14 @@ func loadEnv(filename string) error {
 		os.Setenv(key, value)
 	}
 
-	return scanner.Err()
+	if err := scanner.Err(); err != nil {
+		panic(err)
+	}
+
+	hostDomain = os.Getenv("HOST_DOMAIN")
+	apiKey = os.Getenv("API_KEY")
+	environment = os.Getenv("ENVIRONMENT")
+	logLevel = os.Getenv("LOG_LEVEL")
 }
 
 var jsMinifier *minify.M
