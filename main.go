@@ -362,9 +362,6 @@ func main() {
 	}))
 
 	http.HandleFunc("/analytics.js", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/javascript")
-		w.Header().Set("Cache-Control", "public, max-age=86400") // Cache for 24 hours
-
 		var url string
 		switch hostDomain {
 		case "":
@@ -384,6 +381,8 @@ func main() {
 			return
 		}
 
+		w.Header().Set("Content-Type", "application/javascript")
+		w.Header().Set("Cache-Control", "public, max-age=86400") // Cache for 24 hours
 		w.Write([]byte(script))
 	})
 
