@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -464,42 +463,41 @@ func getConnStr() string {
 
 // init loads environment variables from .env file
 func init() {
-	file, err := os.Open(".env")
-	if err != nil {
-		// If the file doesn't exist, return nil
-		if errors.Is(err, os.ErrNotExist) {
-			return
+	// Check if the .env file exists
+	if _, err := os.Stat(".env"); err == nil {
+
+		file, err := os.Open(".env")
+		if err != nil {
+			panic(err)
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := scanner.Text()
+			// Skip empty lines and comments
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+
+			// Split on first '=' only
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+
+			// Trim spaces and quotes
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			value = strings.Trim(value, `"'`)
+
+			// Set environment variable
+			os.Setenv(key, value)
 		}
 
-		panic(err)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+		if err := scanner.Err(); err != nil {
+			panic(err)
 		}
-
-		// Split on first '=' only
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		// Trim spaces and quotes
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-		value = strings.Trim(value, `"'`)
-
-		// Set environment variable
-		os.Setenv(key, value)
-	}
-
-	if err := scanner.Err(); err != nil {
-		panic(err)
 	}
 
 	hostDomain = os.Getenv("HOST_DOMAIN")
