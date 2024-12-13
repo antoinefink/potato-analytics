@@ -360,6 +360,59 @@ func main() {
 		json.NewEncoder(w).Encode(stats)
 	}))
 
+	http.HandleFunc("/stats/page", requireAPIKey(func(w http.ResponseWriter, r *http.Request) {
+		domain := r.URL.Query().Get("domain")
+		if domain == "" {
+			http.Error(w, "Missing domain parameter", http.StatusBadRequest)
+			return
+		}
+
+		path := r.URL.Query().Get("path")
+		if path == "" {
+			http.Error(w, "Missing path parameter", http.StatusBadRequest)
+			return
+		}
+
+		// Get stats for the last 30 days by default
+		endTime := time.Now().UTC().Truncate(24 * time.Hour)
+		startTime := endTime.Add(-30 * 24 * time.Hour)
+
+		type PageStat struct {
+			Day      time.Time `json:"day"`
+			Visitors int       `json:"visitors"`
+		}
+
+		query := `
+		SELECT day, hll_cardinality(visitor_hll) as visitors
+		FROM pages
+		WHERE domain = $1 AND path = $2 AND day >= $3 AND day <= $4
+		ORDER BY day DESC
+		`
+
+		rows, err := db.Query(query, domain, path, startTime, endTime)
+		if err != nil {
+			logger.Error("Failed to query stats", slog.String("error", err.Error()))
+			http.Error(w, "Failed to fetch stats", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+
+		var stats []PageStat
+		for rows.Next() {
+			var stat PageStat
+			if err := rows.Scan(&stat.Day, &stat.Visitors); err != nil {
+				logger.Error("Failed to scan stats", slog.String("error", err.Error()))
+				http.Error(w, "Failed to fetch stats", http.StatusInternalServerError)
+				return
+			}
+			stats = append(stats, stat)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(stats)
+	}))
+
 	http.HandleFunc("/analytics.js", func(w http.ResponseWriter, r *http.Request) {
 		var url string
 		switch hostDomain {
